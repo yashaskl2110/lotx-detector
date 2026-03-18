@@ -31,9 +31,9 @@ The platform is trusted. The C2 channel is invisible.
 Core detection engine in active development.
 
 ## Background
-Currently researching kernel exploits targeting memory registers — 
+Currently researching kernel exploits targeting memory registers
 applying low-level attacker perspective to cloud-layer threat detection. 
-CompTIA Sec+ certified. Computer engineering background.
+CompTIA Sec+ certified. Computer engineering and Cybersecurity background.
 
 ## References
 - [Cloudflare 2026 Threat Report](https://blog.cloudflare.com)
