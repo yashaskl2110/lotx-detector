@@ -6,7 +6,7 @@ state-sponsored actors using trusted SaaS platforms as C2 channels.
 ## The Threat
 Cloudflare's Cloudforce One team documented Chinese APT groups embedding 
 encrypted payloads inside Google Calendar event descriptions to communicate 
-with infected hosts — blending malicious traffic with legitimate SaaS usage 
+with infected hosts, blending malicious traffic with legitimate SaaS usage 
 to evade detection entirely.
 
 Traditional perimeter defences don't catch this. The traffic looks normal. 
@@ -15,7 +15,7 @@ The platform is trusted. The C2 channel is invisible.
 ## What This Tool Detects
 - Encrypted/encoded payloads in Google Calendar event descriptions
 - Anomalous OAuth token forwarding from CRM platforms to external AI APIs
-- SaaS-to-SaaS permission blast radius — how many services collapse 
+- SaaS-to-SaaS permission blast radius, how many services collapse 
   if one OAuth token is compromised
 - Out-of-hours API call spikes from trusted SaaS integrations
 - Outbound connections to known Tor exit nodes from trusted processes
