@@ -4,7 +4,7 @@
 # Shannon entropy threshold
 # Legitimate calendar text: ~3.5
 # Encoded C2 payloads: typically >4.5
-ENTROPY_THRESHOLD = 4.5
+ENTROPY_THRESHOLD = 4.8
 
 # Minimum decoded length to flag as base64
 BASE64_MIN_LENGTH = 20
@@ -28,7 +28,7 @@ C2_MARKERS = [
 # Risk scoring thresholds
 CRITICAL_FLAG_COUNT = 3
 HIGH_FLAG_COUNT = 2
-MEDIUM_FLAG_COUNT = 1
+MEDIUM_FLAG_COUNT = 2
 
 # Cloudflare Zero Trust remediation mapping
 CF_REMEDIATION = {
