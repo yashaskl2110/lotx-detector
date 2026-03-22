@@ -1,12 +1,20 @@
 import base64
 import math
 from datetime import datetime
+from config import (
+    ENTROPY_THRESHOLD, BASE64_MIN_LENGTH,
+    BUSINESS_HOURS_START, BUSINESS_HOURS_END,
+    SHORT_TITLE_MAX, LONG_DESCRIPTION_MIN,
+    C2_MARKERS, CRITICAL_FLAG_COUNT,
+    HIGH_FLAG_COUNT, MEDIUM_FLAG_COUNT,
+    CF_REMEDIATION
+)
 
 def calculate_entropy(text):
     """
     Calculate Shannon entropy of a string.
     High entropy = likely encoded/encrypted payload.
-    
+
     Cloudflare 2026 Threat Report: Chinese APT groups embed
     base64-encoded C2 commands in Calendar event descriptions.
     Legitimate calendar text has entropy ~3.5
@@ -31,7 +39,7 @@ def is_base64(text):
         if len(text) % 4 != 0:
             return False
         decoded = base64.b64decode(text)
-        return len(decoded) > 20
+        return len(decoded) > BASE64_MIN_LENGTH
     except Exception:
         return False
 
@@ -47,7 +55,7 @@ def check_suspicious_timing(event):
         return False
     try:
         hour = datetime.fromisoformat(created).hour
-        return hour < 7 or hour > 22
+        return hour < BUSINESS_HOURS_START or hour > BUSINESS_HOURS_END
     except Exception:
         return False
 
@@ -56,7 +64,7 @@ def analyse_event(event):
     """
     Core detection logic — analyse a single calendar event
     for Living-off-the-Cloud C2 indicators.
-    
+
     Returns a risk report dict with findings and severity.
     """
     description = event.get('description', '')
@@ -66,9 +74,9 @@ def analyse_event(event):
 
     # Check 1 — Shannon entropy on description field
     entropy = calculate_entropy(description)
-    if entropy > 4.5:
+    if entropy > ENTROPY_THRESHOLD:
         flags.append('HIGH_ENTROPY')
-        evidence.append(f"Entropy score {entropy} exceeds threshold of 4.5")
+        evidence.append(f"Entropy score {entropy} exceeds threshold of {ENTROPY_THRESHOLD}")
 
     # Check 2 — Base64 decodable content
     if is_base64(description.strip()):
@@ -78,29 +86,34 @@ def analyse_event(event):
     # Check 3 — Suspicious creation time
     if check_suspicious_timing(event):
         flags.append('OFF_HOURS_CREATION')
-        evidence.append("Event created outside business hours (before 07:00 or after 22:00)")
+        evidence.append(f"Event created outside business hours (before {BUSINESS_HOURS_START:02d}:00 or after {BUSINESS_HOURS_END:02d}:00)")
 
     # Check 4 — Unusually short title with long description
-    if len(title) < 10 and len(description) > 200:
+    if len(title) < SHORT_TITLE_MAX and len(description) > LONG_DESCRIPTION_MIN:
         flags.append('SUSPICIOUS_RATIO')
         evidence.append(f"Short title ({len(title)} chars) with long description ({len(description)} chars)")
 
     # Check 5 — Known C2 payload markers
-    c2_markers = ['cmd=', 'exec=', 'payload=', '/bin/', 'powershell', 'wget', 'curl -s']
-    found_markers = [m for m in c2_markers if m.lower() in description.lower()]
+    found_markers = [m for m in C2_MARKERS if m.lower() in description.lower()]
     if found_markers:
         flags.append('C2_MARKERS')
         evidence.append(f"Known C2 markers found: {found_markers}")
 
     # Risk scoring
-    if len(flags) >= 3:
+    if len(flags) >= CRITICAL_FLAG_COUNT:
         risk = 'CRITICAL'
-    elif len(flags) == 2:
+    elif len(flags) >= HIGH_FLAG_COUNT:
         risk = 'HIGH'
-    elif len(flags) == 1:
+    elif len(flags) >= MEDIUM_FLAG_COUNT:
         risk = 'MEDIUM'
     else:
         risk = 'LOW'
+
+    # Cloudflare remediation mapping
+    remediation = list(set(
+        CF_REMEDIATION.get(flag, '') for flag in flags
+    ))
+    remediation = [r for r in remediation if r]
 
     return {
         'event': title,
@@ -108,7 +121,8 @@ def analyse_event(event):
         'flags': flags,
         'evidence': evidence,
         'risk': risk,
-        'flag_count': len(flags)
+        'flag_count': len(flags),
+        'remediation': remediation
     }
 
 
@@ -122,7 +136,6 @@ def scan_events(events):
         result = analyse_event(event)
         results.append(result)
 
-    # Sort by risk severity
     risk_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}
     results.sort(key=lambda x: risk_order[x['risk']])
     return results
@@ -149,14 +162,16 @@ def print_report(results):
             print(f"  Entropy: {r['entropy']} | Flags: {r['flag_count']}")
             for e in r['evidence']:
                 print(f"    → {e}")
+            if r['remediation']:
+                print(f"  Cloudflare fix:")
+                for rem in r['remediation']:
+                    print(f"    ⚡ {rem}")
             print()
 
     print("="*60 + "\n")
 
 
 if __name__ == "__main__":
-    # Test events — simulating APT C2 patterns
-    # documented in Cloudflare's 2026 Threat Report
     test_events = [
         {
             'summary': 'Q2 Planning',
