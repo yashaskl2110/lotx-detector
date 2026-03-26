@@ -59,6 +59,47 @@ def check_suspicious_timing(event):
     except Exception:
         return False
 
+def check_volume_spike(events, window_minutes=30, spike_threshold=3):
+    """
+    Detect unusual bursts of calendar event creation.
+    APT operators sometimes push multiple C2 commands
+    in rapid succession — this flags that pattern.
+    
+    Returns list of time windows with suspicious activity.
+    """
+    from collections import defaultdict
+    
+    # Group events by 30-minute creation windows
+    windows = defaultdict(list)
+    
+    for event in events:
+        created = event.get('created', '')
+        if not created:
+            continue
+        try:
+            dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+            # Round down to nearest window
+            window_key = dt.replace(
+                minute=(dt.minute // window_minutes) * window_minutes,
+                second=0,
+                microsecond=0
+            )
+            windows[window_key].append(event.get('summary', 'Untitled'))
+        except Exception:
+            continue
+    
+    # Flag any window with more events than threshold
+    spikes = []
+    for window_time, window_events in windows.items():
+        if len(window_events) >= spike_threshold:
+            spikes.append({
+                'window': window_time.strftime('%Y-%m-%d %H:%M'),
+                'count': len(window_events),
+                'events': window_events,
+                'risk': 'HIGH' if len(window_events) >= 5 else 'MEDIUM'
+            })
+    
+    return spikes
 
 def analyse_event(event):
     """
@@ -167,7 +208,15 @@ def print_report(results):
                 for rem in r['remediation']:
                     print(f"    ⚡ {rem}")
             print()
-
+def print_spike_report(spikes):
+    """Print volume spike findings."""
+    if not spikes:
+        return
+    print("\n  Volume spike analysis:")
+    for spike in spikes:
+        print(f"  [{spike['risk']}] {spike['count']} events in 30-min window at {spike['window']}")
+        for e in spike['events']:
+            print(f"    → {e}")
     print("="*60 + "\n")
 
 
