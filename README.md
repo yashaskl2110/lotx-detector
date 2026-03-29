@@ -83,8 +83,8 @@ Every subsequent run compares against baseline and flags deviations.
 ![Baseline deviations](docs/screenshots/baseline_deviation.png)
 
 **Notable finding:** Connection spike detected — 41 connections vs baseline
-of 17 (2.4x increase). New processes flagged including `claude.exe` and
-`python.exe` connecting to new IPs — the tool detected its own network
+of 17 (2.4x increase). New processes flagged including `chrome.exe`,`msedgewebview2.exe`,`svchost.exe`,`python.exe`and
+`Code.exe` connecting to new IPs — the tool detected its own network
 activity, proving the detection logic works.
 
 ---
@@ -148,9 +148,6 @@ python detector.py
 
 # Continuous monitor — alerts on new findings only
 python scheduler.py
-```
-
----
 
 ## File Structure
 
