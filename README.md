@@ -1,4 +1,4 @@
-# LotX Detector - Living-off-the-Cloud C2 Detection
+# LotX Detector : Living-off-the-Cloud C2 Detection
 
 > Built in direct response to Cloudflare's 2026 Threat Report findings on 
 > state-sponsored actors using trusted SaaS platforms as C2 channels.
