@@ -17,7 +17,7 @@ They don't analyse what's inside them.
 
 ---
 
-## What This Tool Detects — All Live, No Hardcoded Data
+## What This Tool Detects - All Live, No Hardcoded Data
 
 | Module | What It Scans | Data Source |
 |--------|--------------|-------------|
@@ -43,7 +43,7 @@ They don't analyse what's inside them.
 
 ---
 
-## Android Device Scan — Samsung Galaxy Z Flip 6 (SM-F741B, Android 16)
+## Android Device Scan - Samsung Galaxy Z Flip 6 (SM-F741B, Android 16)
 
 Scans 58 real installed apps via ADB. Detects LotX permission patterns
 on the actual device - no emulation, no simulation.
