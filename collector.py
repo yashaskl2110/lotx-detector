@@ -89,10 +89,14 @@ def print_aggregated_report():
                             f.get('finding') or
                             f.get('event') or
                             f.get('scope') or
-                            str(f)
+                            f.get('account') or
+                            str(f)[:80]
                         )
                         risk = f.get('risk', '')
-                        print(f"    → [{risk}] {msg[:80]}")
+                        if risk:
+                            print(f"    → [{risk}] {str(msg)[:80]}")
+                        else:
+                            print(f"    → {str(msg)[:80]}")
                         if risk == 'CRITICAL':
                             total_critical += 1
                         elif risk == 'HIGH':

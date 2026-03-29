@@ -1,34 +1,9 @@
-from config import CF_REMEDIATION
+from oauth_scope_checker import get_real_scopes, assess_real_scopes
+from github_auditor import get_github_token_scopes, assess_github_risk, get_oauth_apps
 
-# Known high-risk OAuth scopes and their risk levels
-SCOPE_RISK = {
-    # Google - Critical scopes
-    'https://www.googleapis.com/auth/gmail.readonly':        ('HIGH',     'Read all Gmail messages'),
-    'https://www.googleapis.com/auth/gmail.modify':          ('CRITICAL', 'Read, modify and delete Gmail'),
-    'https://www.googleapis.com/auth/drive':                 ('CRITICAL', 'Full Google Drive access'),
-    'https://www.googleapis.com/auth/drive.readonly':        ('HIGH',     'Read all Google Drive files'),
-    'https://www.googleapis.com/auth/calendar':              ('HIGH',     'Full calendar read/write'),
-    'https://www.googleapis.com/auth/calendar.readonly':     ('MEDIUM',   'Read calendar events'),
-    'https://www.googleapis.com/auth/admin.directory.user':  ('CRITICAL', 'Manage all Google Workspace users'),
-    'https://www.googleapis.com/auth/spreadsheets':          ('HIGH',     'Read/write all Google Sheets'),
-    'https://www.googleapis.com/auth/contacts':              ('HIGH',     'Read/write all contacts'),
-    # GitHub
-    'repo':                                                  ('CRITICAL', 'Full repository access'),
-    'admin:org':                                             ('CRITICAL', 'Full org admin access'),
-    'delete_repo':                                           ('CRITICAL', 'Delete repositories'),
-    'write:packages':                                        ('HIGH',     'Write packages'),
-    'read:org':                                              ('MEDIUM',   'Read org membership'),
-    'user:email':                                            ('LOW',      'Read email address'),
-    # Slack
-    'channels:history':                                      ('CRITICAL', 'Read all channel messages'),
-    'files:read':                                            ('HIGH',     'Read all files'),
-    'chat:write':                                            ('HIGH',     'Post messages'),
-    'users:read':                                            ('MEDIUM',   'Read user list'),
-    'channels:read':                                         ('LOW',      'Read channel list'),
-}
-
-# Each scope maps to real downstream capabilities it exposes
+# Scope to capability mapping — what each real scope actually exposes
 SCOPE_IMPACT = {
+    # Google scopes
     'https://www.googleapis.com/auth/gmail.modify':          ['email_read', 'email_delete', 'email_send', 'attachment_access'],
     'https://www.googleapis.com/auth/gmail.readonly':        ['email_read', 'attachment_access'],
     'https://www.googleapis.com/auth/drive':                 ['file_read', 'file_write', 'file_delete', 'file_share'],
@@ -38,41 +13,38 @@ SCOPE_IMPACT = {
     'https://www.googleapis.com/auth/admin.directory.user':  ['user_create', 'user_delete', 'user_modify', 'password_reset', 'org_admin'],
     'https://www.googleapis.com/auth/spreadsheets':          ['data_read', 'data_write', 'formula_exec'],
     'https://www.googleapis.com/auth/contacts':              ['contact_read', 'contact_write', 'org_chart'],
-    'repo':           ['code_read', 'code_write', 'secret_access', 'ci_trigger', 'deploy_trigger'],
-    'admin:org':      ['org_admin', 'user_manage', 'billing_access', 'sso_bypass'],
-    'delete_repo':    ['code_delete', 'history_destroy'],
-    'write:packages': ['artifact_write', 'deploy_trigger'],
-    'read:org':       ['org_chart', 'user_enumerate'],
-    'user:email':     ['email_read'],
-    'channels:history': ['message_read', 'secret_exposure', 'credential_harvest'],
-    'files:read':       ['file_read', 'attachment_access'],
-    'chat:write':       ['message_send', 'phishing_vector'],
-    'users:read':       ['user_enumerate', 'org_chart'],
-    'channels:read':    ['channel_enumerate'],
+    # GitHub scopes
+    'repo':             ['code_read', 'code_write', 'secret_access', 'ci_trigger', 'deploy_trigger'],
+    'admin:org':        ['org_admin', 'user_manage', 'billing_access', 'sso_bypass'],
+    'delete_repo':      ['code_delete', 'history_destroy'],
+    'write:packages':   ['artifact_write', 'deploy_trigger'],
+    'read:org':         ['org_chart', 'user_enumerate'],
+    'user:email':       ['email_read'],
+    'public_repo':      ['code_read'],
+    'read:user':        ['user_enumerate'],
 }
 
-# Weight of each capability — based on real attack impact
-# These are defensible: each number represents how many
-# downstream systems are typically reachable via that capability
+# Impact weights — each capability maps to real downstream exposure
 IMPACT_WEIGHTS = {
-    'org_admin':          15,  # Cascades to every system in the org
-    'sso_bypass':         12,  # Can impersonate any user
-    'password_reset':     10,  # Direct account takeover vector
-    'secret_access':       9,  # CI secrets expose all deployment targets
-    'credential_harvest':  8,  # Slack history full of passwords/tokens
+    'org_admin':          15,
+    'sso_bypass':         12,
+    'password_reset':     10,
+    'secret_access':       9,
+    'credential_harvest':  8,
     'user_delete':         8,
     'user_create':         8,
-    'deploy_trigger':      7,  # Can push malicious code to production
+    'deploy_trigger':      7,
     'code_write':          6,
     'code_delete':         6,
     'user_modify':         5,
-    'email_send':          5,  # Phishing from trusted internal address
+    'email_send':          5,
     'phishing_vector':     5,
     'billing_access':      4,
     'file_delete':         4,
     'history_destroy':     4,
     'data_write':          4,
     'secret_exposure':     4,
+    'ci_trigger':          4,
     'formula_exec':        3,
     'artifact_write':      3,
     'message_read':        3,
@@ -91,45 +63,15 @@ IMPACT_WEIGHTS = {
     'channel_enumerate':   1,
     'meeting_access':      1,
     'calendar_read':       1,
-    'ci_trigger':          4,
     'user_manage':         5,
     'file_write':          4,
 }
 
 
-def assess_scope_risk(scopes):
+def calculate_blast_radius(scopes):
     """
-    Assess risk level of a list of OAuth scopes.
-    Returns highest risk level and list of findings.
-    """
-    findings = []
-    highest_risk = 'LOW'
-    risk_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}
-
-    for scope in scopes:
-        if scope in SCOPE_RISK:
-            risk, description = SCOPE_RISK[scope]
-            findings.append({
-                'scope': scope,
-                'risk': risk,
-                'description': description
-            })
-            if risk_order[risk] < risk_order[highest_risk]:
-                highest_risk = risk
-
-    return highest_risk, findings
-
-
-def calculate_blast_radius(platform, scopes):
-    """
-    Calculate blast radius from actual granted scopes.
-    Each scope maps to real downstream capabilities.
-    Blast radius = sum of impact weights across all unique
-    capabilities exposed by the granted scopes.
-
-    Every number is traceable — if asked how we got the score,
-    we can walk through exactly which scopes contributed
-    which capabilities and why each weight was assigned.
+    Calculate blast radius from real granted scopes.
+    Every number comes from actual scope data — nothing hardcoded.
     """
     exposed_capabilities = set()
 
@@ -138,155 +80,107 @@ def calculate_blast_radius(platform, scopes):
         for impact in impacts:
             exposed_capabilities.add(impact)
 
-    # Sum weights of unique exposed capabilities
     blast_score = sum(
         IMPACT_WEIGHTS.get(cap, 1)
         for cap in exposed_capabilities
     )
 
-    # High impact capabilities for human-readable description
     high_impact = sorted(
-        [cap for cap in exposed_capabilities if IMPACT_WEIGHTS.get(cap, 0) >= 5],
+        [cap for cap in exposed_capabilities if IMPACT_WEIGHTS.get(cap, 0) >= 4],
         key=lambda c: IMPACT_WEIGHTS.get(c, 0),
         reverse=True
     )
 
-    description = ', '.join(high_impact[:4]) if high_impact else 'limited exposure'
-    return blast_score, description
+    description = ', '.join(high_impact[:4]) if high_impact else 'minimal exposure'
+    return blast_score, description, list(exposed_capabilities)
 
 
-def audit_connection(connection):
+def run_blast_radius_audit():
     """
-    Audit a single OAuth connection for risk.
+    Pull real OAuth scopes from Google and GitHub accounts.
+    Calculate blast radius from actual granted permissions.
+    No hardcoded connections — all data is live.
     """
-    scopes = connection.get('scopes', [])
-    platform = connection.get('platform', 'unknown')
-    name = connection.get('name', 'Unknown connection')
-    token_age = connection.get('token_age_days', 0)
-
-    # Assess scope risk
-    risk_level, scope_findings = assess_scope_risk(scopes)
-
-    # Calculate blast radius from real scope data
-    blast_radius, blast_description = calculate_blast_radius(platform, scopes)
-
-    # Additional risk factors
-    extra_flags = []
-    if token_age > 90:
-        extra_flags.append(f'Token not rotated in {token_age} days (exceeds 90-day policy)')
-    if token_age > 365:
-        extra_flags.append('CRITICAL: Token over 1 year old — immediate rotation required')
-        risk_level = 'CRITICAL'
-
-    # Build remediation steps
-    remediation = []
-    if risk_level == 'CRITICAL':
-        remediation.append('Revoke token immediately via Google Cloud Console')
-        remediation.append('Enable Cloudflare CASB to monitor future OAuth grants')
-    elif risk_level == 'HIGH':
-        remediation.append('Reduce OAuth scope to minimum required permissions')
-        remediation.append('Configure Cloudflare Access policy for this integration')
-    remediation.append('Route API calls through Cloudflare Gateway for inspection')
-
-    return {
-        'name': name,
-        'platform': platform,
-        'risk': risk_level,
-        'scope_findings': scope_findings,
-        'blast_radius': blast_radius,
-        'blast_description': blast_description,
-        'extra_flags': extra_flags,
-        'remediation': remediation,
-        'scope_count': len(scopes)
-    }
-
-
-def audit_all(connections):
-    """Audit all OAuth connections and return prioritised results."""
     results = []
-    for conn in connections:
-        result = audit_connection(conn)
-        results.append(result)
 
-    risk_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3}
-    results.sort(key=lambda x: risk_order[x['risk']])
+    # Google — real scopes from your actual account
+    print("  Fetching real Google OAuth scopes...")
+    google_token = get_real_scopes()
+    if google_token:
+        scopes = google_token.get('scopes', [])
+        blast_score, description, capabilities = calculate_blast_radius(scopes)
+        results.append({
+            'account': f"Google ({google_token.get('email', 'unknown')})",
+            'platform': 'google',
+            'scopes': scopes,
+            'blast_score': blast_score,
+            'high_impact_capabilities': description,
+            'capabilities': capabilities,
+            'token_expires_in': google_token.get('expires_in_seconds', 0)
+        })
+
+    # GitHub — real scopes from your actual account
+    print("  Fetching real GitHub OAuth scopes...")
+    github_data = get_github_token_scopes()
+    if github_data:
+        scopes = github_data.get('scopes', [])
+        blast_score, description, capabilities = calculate_blast_radius(scopes)
+        results.append({
+            'account': f"GitHub ({github_data.get('username', 'unknown')})",
+            'platform': 'github',
+            'scopes': scopes,
+            'blast_score': blast_score,
+            'high_impact_capabilities': description,
+            'capabilities': capabilities,
+            'two_factor': github_data.get('two_factor', False),
+            'public_repos': github_data.get('public_repos', 0)
+        })
+
     return results
 
 
 def print_blast_report(results):
-    """Print OAuth blast radius report."""
+    """Print real blast radius report."""
     print("\n" + "="*60)
     print("  LotX Detector — OAuth Blast Radius Report")
-    print("  SaaS Permission Audit")
+    print("  Real scope data from your actual accounts")
     print("="*60)
 
-    critical = [r for r in results if r['risk'] == 'CRITICAL']
-    high = [r for r in results if r['risk'] == 'HIGH']
+    if not results:
+        print("\n  No OAuth data retrieved.\n")
+        return
 
-    print(f"\n  Connections audited: {len(results)}")
-    print(f"  Critical risk:       {len(critical)}")
-    print(f"  High risk:           {len(high)}")
-    print()
+    total_blast = sum(r['blast_score'] for r in results)
+    print(f"\n  Accounts audited: {len(results)}")
+    print(f"  Combined blast score: {total_blast}")
+    print(f"  If any token is compromised, attacker gains access to")
+    print(f"  capabilities scoring {total_blast} impact points\n")
 
     for r in results:
-        if r['risk'] in ('CRITICAL', 'HIGH', 'MEDIUM'):
-            print(f"  [{r['risk']}] {r['name']}")
-            print(f"  Blast score: {r['blast_radius']} | Scopes: {r['scope_count']}")
-            print(f"  High-impact capabilities: {r['blast_description']}")
+        print(f"  [{r['platform'].upper()}] {r['account']}")
+        print(f"  Blast score:  {r['blast_score']}")
+        print(f"  Scopes:       {len(r['scopes'])}")
+        print(f"  High-impact:  {r['high_impact_capabilities']}")
 
-            if r['scope_findings']:
-                print(f"  Dangerous scopes:")
-                for sf in r['scope_findings']:
-                    if sf['risk'] in ('CRITICAL', 'HIGH'):
-                        print(f"    ⚠ [{sf['risk']}] {sf['scope']}")
-                        print(f"         {sf['description']}")
+        if r.get('two_factor') is False:
+            print(f"  ⚠ [CRITICAL] 2FA not enabled — account takeover risk elevated")
 
-            if r['extra_flags']:
-                for flag in r['extra_flags']:
-                    print(f"    ⏰ {flag}")
+        print(f"  Granted scopes:")
+        for scope in r['scopes']:
+            print(f"    → {scope}")
 
-            print(f"  Remediation:")
-            for rem in r['remediation']:
-                print(f"    ⚡ {rem}")
-            print()
+        print(f"\n  Cloudflare remediation:")
+        if r['blast_score'] > 20:
+            print(f"    ⚡ High blast score — enable Cloudflare CASB monitoring")
+            print(f"    ⚡ Reduce OAuth scopes to minimum required")
+        else:
+            print(f"    ✓ Blast score within acceptable range")
+            print(f"    ⚡ Continue monitoring via Cloudflare CASB")
+        print()
 
     print("="*60 + "\n")
 
 
 if __name__ == "__main__":
-    test_connections = [
-        {
-            'name': 'Salesforce → OpenAI GPT-4',
-            'platform': 'google',
-            'scopes': [
-                'https://www.googleapis.com/auth/drive',
-                'https://www.googleapis.com/auth/gmail.modify',
-                'https://www.googleapis.com/auth/admin.directory.user'
-            ],
-            'token_age_days': 420
-        },
-        {
-            'name': 'GitHub Actions → AWS Production',
-            'platform': 'github',
-            'scopes': ['repo', 'admin:org', 'delete_repo'],
-            'token_age_days': 240
-        },
-        {
-            'name': 'Notion → Slack Bot',
-            'platform': 'slack',
-            'scopes': ['channels:history', 'files:read', 'chat:write'],
-            'token_age_days': 45
-        },
-        {
-            'name': 'Calendar sync integration',
-            'platform': 'google',
-            'scopes': [
-                'https://www.googleapis.com/auth/calendar.readonly',
-                'https://www.googleapis.com/auth/contacts'
-            ],
-            'token_age_days': 30
-        }
-    ]
-
-    results = audit_all(test_connections)
+    results = run_blast_radius_audit()
     print_blast_report(results)

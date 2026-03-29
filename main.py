@@ -7,7 +7,8 @@ from oauth_scope_checker import get_real_scopes, assess_real_scopes, print_scope
 from github_auditor import get_github_token_scopes, get_oauth_apps, assess_github_risk, print_github_report
 from android_scanner import scan_android, print_android_report
 from collector import save_finding, get_device_id, print_aggregated_report
-
+from network_baseline import run_baseline_scan, print_baseline_report
+from oauth_auditor import run_blast_radius_audit, print_blast_report
 
 def check_adb_connected():
     """Check if Android device is connected via ADB."""
@@ -21,7 +22,6 @@ def check_adb_connected():
     lines = [l for l in result.stdout.splitlines() if 'device' in l and 'List' not in l]
     return len(lines) > 0
 
-
 def main():
     device_id = get_device_id()
 
@@ -32,7 +32,7 @@ def main():
     print("="*60)
 
     # Module 1 — Tor exit node scan
-    print("\n  [1/5] Running Tor exit node scan...")
+    print("\n  [1/7] Running Tor exit node scan...")
     tor_findings = run_tor_scan()
     tor_nodes = set()
     tor_nodes = TOR_EXIT_CACHE
@@ -40,7 +40,7 @@ def main():
     save_finding(device_id, 'tor_monitor', tor_findings)
 
     # Module 2 — Google OAuth scope audit
-    print("\n  [2/5] Running Google OAuth scope audit...")
+    print("\n  [2/7] Running Google OAuth scope audit...")
     token_data = get_real_scopes()
     if token_data:
         findings, overall_risk = assess_real_scopes(token_data)
@@ -48,7 +48,7 @@ def main():
         save_finding(device_id, 'google_oauth', findings)
 
     # Module 3 — GitHub OAuth audit
-    print("\n  [3/5] Running GitHub OAuth audit...")
+    print("\n  [3/7] Running GitHub OAuth audit...")
     github_data = get_github_token_scopes()
     oauth_apps = get_oauth_apps()
     if github_data:
@@ -59,9 +59,13 @@ def main():
             github_data, scope_findings, app_findings, overall_risk
         )
         save_finding(device_id, 'github_oauth', scope_findings)
-
-    # Module 4 — Calendar C2 scan
-    print("\n  [4/5] Running Calendar C2 scan...")
+    # Module 4 — OAuth Blast Radius
+    print("\n  [4/7] Running OAuth blast radius audit...")
+    blast_results = run_blast_radius_audit()
+    print_blast_report(blast_results)
+    save_finding(device_id, 'blast_radius', blast_results)
+    # Module 5 — Calendar C2 scan
+    print("\n  [5/7] Running Calendar C2 scan...")
     events = fetch_events(max_results=50)
     if events:
         results = scan_events(events)
@@ -72,7 +76,7 @@ def main():
         save_finding(device_id, 'calendar_c2', critical)
 
     # Module 5 — Android device scan
-    print("\n  [5/5] Running Android device scan...")
+    print("\n  [6/7] Running Android device scan...")
     if check_adb_connected():
         android_findings, device_info = scan_android(tor_nodes)
         print_android_report(android_findings, device_info)
@@ -80,7 +84,11 @@ def main():
     else:
         print("  No Android device connected — skipping.")
         print("  Connect device via USB and enable USB debugging to scan.")
-
+    # Module 6 — Network baseline profiling
+    print("\n  [7/7] Running network baseline profiling...")
+    baseline_findings, baseline_created = run_baseline_scan()
+    print_baseline_report(baseline_findings, baseline_created)
+    save_finding(device_id, 'network_baseline', baseline_findings)
     # Aggregated report from all devices
     print_aggregated_report()
 
