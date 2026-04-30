@@ -145,7 +145,7 @@ python scheduler.py
 | `oauth_auditor.py` | Blast radius from real scope data |
 | `android_scanner.py` | Android device scanner via ADB |
 | `network_baseline.py` | Network baseline profiling |
-| `scheduler.py` | 24-hour continuous monitor |
+| `scheduler.py` | 24-hour Calendar C2 continuous monitor — alerts on new findings only |
 | `collector.py` | Multi-device aggregated reporting |
 | `config.py` | Tunable detection thresholds |
 
